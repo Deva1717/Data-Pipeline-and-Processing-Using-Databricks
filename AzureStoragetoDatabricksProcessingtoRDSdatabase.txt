@@ -1,0 +1,57 @@
+1.Create a Storage account in the Azure not making any changes (keep default all settings while creating)
+2.Make one container in that storage account ("csvdata")
+3.Now open the databricks and start the cluster and make new notebook
+4.Write a python code for mounting the azure data blob storage in databricks
+
+***Replace these placeholders with your Azure Storage credentials and container details********
+storage_account_name = "avdgodown1"
+storage_account_access_key = "Ak63KO28xw4vvKBJAtodj9UGyXRu7cLUtyxZgLu0ULONWC+e9aK21zPo8D/iBb0Vh0ZTTtpddi83+ASt3HqWww=="
+container_name = "csvdata"
+
+******Mount the Azure Storage container*************************************
+dbutils.fs.mount(
+  source = "wasbs://csvdata@avdgodown1.blob.core.windows.net",
+  mount_point = "/mnt/devascsvdata",
+  extra_configs = {"fs.azure.account.key.avdgodown1.blob.core.windows.net": storage_account_access_key})
+
+******Commands to list down the files in the mount of databricks****************************************
+display(dbutils.fs.ls("/mnt/devascsvdata"))
+
+5.Now add the credentials of the sql rds as mentioned below
+myconf={
+    "url":"jdbc:mysql://myinstancedb.cjewmmek2492.us-east-1.rds.amazonaws.com/mysqldb",
+    "user":"devanand",
+    "password":"Deva#1717",
+    "driver":"com.mysql.cj.jdbc.Driver"
+}
+6.Here comes the main part now we have to filter all the column names from all files present in the azure container
+and further to store in the RDS finally, therefore we write a python code
+
+directory_path = "dbfs:/mnt/devascsvdata/"
+file_list = dbutils.fs.ls(directory_path)
+file_paths = [file_info.path for file_info in file_list if file_info.path.endswith(".csv")]
+myconf={
+    "url":"jdbc:mysql://myinstancedb.cjewmmek2492.us-east-1.rds.amazonaws.com/mysqldb",
+    "user":"devanand",
+    "password":"Deva#1717",
+    "driver":"com.mysql.cj.jdbc.Driver"
+}
+import re
+# Function to remove special characters from column names
+def remove_special_characters(column_name):
+    return re.sub('[^A-Za-z0-9_]+', '', column_name)
+
+import os
+for path in file_paths:
+    temp=os.path.basename(path)
+    tab,file_ext=os.path.splitext(temp)
+    df=spark.read.format("csv").option("header","true").option("inferSchema","true").load(path)
+    df.show()
+
+    new_column_names = [remove_special_characters(col) for col in df.columns]
+    df = df.toDF(*new_column_names)
+    
+    df.write.mode("overwrite").format("jdbc").options(**myconf).option("dbtable",tab).save()
+	
+#Here we have taken one by one files from the our azure container using for loop given to a path and
+#and then split thier names from the extension and then filter the column_names and write the data to the RDS.
